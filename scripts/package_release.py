@@ -7,9 +7,9 @@ root = Path(__file__).resolve().parent.parent
 out = root.parent / 'outputs'
 out.mkdir(exist_ok=True)
 destination = out / 'Breeze-Studio-WSL2.zip'
-folders = ['backend', 'src', 'dist/client', 'scripts', 'tests', 'worker', '.openai', 'qa']
+folders = ['backend', 'src', 'dist/client', 'scripts', 'tests', 'worker', '.openai']
 files = [root / name for name in ['README.md', 'start.sh', 'update.sh', 'VERSION', '.gitignore', '.gitattributes', 'AGENTS.md', 'index.html',
-         'package.json', 'package-lock.json', 'vite.config.mjs', '.npmrc', 'design-qa.md']]
+         'package.json', 'package-lock.json', 'vite.config.mjs', '.npmrc']]
 for folder in folders:
     files.extend(p for p in (root / folder).rglob('*') if p.is_file() and '__pycache__' not in p.parts)
 with zipfile.ZipFile(destination, 'w', zipfile.ZIP_DEFLATED, strict_timestamps=False) as archive:
