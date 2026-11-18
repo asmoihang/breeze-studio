@@ -47,18 +47,18 @@ export function AudioDock({p,server,update,edit,selected,scope,setScope,persist,
   const output={...values,...patch};
   if(local)edit(row.id,{output});else update({output});
  }
- async function exportAudio(format){
+ async function exportAudio(format,segmentOnly=false){
   setExporting(true);
   try{
    await persist(p);
-   const response=await fetch('/api/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project_id:p.id,format,variant})});
+   const response=await fetch('/api/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project_id:p.id,format,variant,segment_id:segmentOnly?row.id:undefined})});
    if(!response.ok)throw new Error((await response.json()).error);
-   download(await response.blob(),`${p.name}-${variant==='original'?'原始':'调整后'}.${format==='zip'?'zip':'wav'}`);
+   download(await response.blob(),`${p.name}${segmentOnly?'-'+row.title:''}-${variant==='original'?'原始':'调整后'}.${format==='zip'?'zip':'wav'}`);
    notify('已导出'+(variant==='original'?'原始':'调整后')+'音频。');
   }catch(e){notify(e.message);}finally{setExporting(false);}
  }
  return <section className="audio-dock" aria-label="试听与调节">
-  <div className="dock-heading"><h2>试听与调节</h2>{segmented&&<div className="dock-scope"><span>范围：</span><div className="segmented-control"><button className={!local?'selected':''} onClick={()=>setScope('global')}>全篇</button><button disabled={!row} className={local?'selected':''} onClick={()=>setScope('segment')}>第 {String(index+1).padStart(2,'0')} 段</button></div></div>}<button className="link dock-reset" disabled={exporting} onClick={()=>local?edit(row.id,{output:null}):update({output:{...defaultOutput}})}><ArrowCounterClockwise/>{local?'恢复跟随全篇':'恢复默认'}</button></div>
+  <div className="dock-heading"><h2>试听与调节</h2>{!segmented&&<span className="dock-current">当前配音</span>}{segmented&&<div className="dock-scope"><span>范围：</span><div className="segmented-control"><button className={!local?'selected':''} onClick={()=>setScope('global')}>全篇</button><button disabled={!row} className={local?'selected':''} onClick={()=>setScope('segment')}>第 {String(index+1).padStart(2,'0')} 段</button></div></div>}<button className="link dock-reset" disabled={exporting} onClick={()=>local?edit(row.id,{output:null}):update({output:{...defaultOutput}})}><ArrowCounterClockwise/>{local?'恢复跟随全篇':'恢复默认'}</button></div>
   <p className="dock-hint">{local?`当前仅调整第 ${String(index+1).padStart(2,'0')} 段${row.output?'。':'，正在跟随全篇。'}`:segmented?'调整所有跟随全篇的段落，单独设置的段落保持原样。':'调整当前配音的语速和音量。'}</p>
   <div className="dock-controls">
    <div className="output-control"><label htmlFor="output-speed">语速</label><input id="output-speed" type="range" min="0.5" max="2" step="0.01" value={values.speed} disabled={exporting} onChange={e=>change({speed:Number(e.target.value)})}/><div className="number-unit"><OutputNumber key={local?row.id:'global'} label="语速倍数" min={.5} max={2} step={.01} decimals={2} value={values.speed} disabled={exporting} onCommit={speed=>change({speed})}/><span>×</span></div></div>
@@ -72,6 +72,6 @@ export function AudioDock({p,server,update,edit,selected,scope,setScope,persist,
    <button className="primary dock-export" disabled={!allReady||exporting} onClick={()=>exportAudio('wav')}><DownloadSimple/>{exporting?'正在导出…':segmented?'导出全篇':'导出配音'}</button>
   </div>
   {error&&<div className="dock-error" role="alert">{error}<button className="link" onClick={()=>{setFailure(null);setRetry(n=>n+1);}}>重试</button></div>}
-  <div className="dock-foot"><p>原始音频已保留；试听效果同步用于导出。</p>{segmented&&<details className="export-options"><summary>更多导出选项</summary><label>段间停顿 <input type="number" min="0" max="10000" step="100" value={p.pause_ms} onChange={e=>{if(e.target.validity.valid)update({pause_ms:Number(e.target.value)});}}/> ms</label><button disabled={!allReady||exporting} onClick={()=>exportAudio('zip')}>分段打包下载</button></details>}</div>
+  <div className="dock-foot"><p>原始音频已保留；试听效果同步用于导出。</p>{segmented&&<details className="export-options"><summary>更多导出选项</summary><label>段间停顿 <input type="number" min="0" max="10000" step="100" value={p.pause_ms} onChange={e=>{if(e.target.validity.valid)update({pause_ms:Number(e.target.value)});}}/> ms</label><div className="button-row"><button disabled={!row||latest(server.jobs,p,row)?.status!=='completed'||exporting} onClick={()=>exportAudio('wav',true)}>导出当前段</button><button disabled={!allReady||exporting} onClick={()=>exportAudio('zip')}>分段打包下载</button></div></details>}</div>
  </section>;
 }

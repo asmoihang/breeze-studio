@@ -140,5 +140,36 @@ class OutputProjectTests(unittest.TestCase):
         self.p['output']={'speed':1,'volume':.5};self.app.save_project(self.p)
         self.assertEqual(samples(self.app.export({'project_id':'project'})[0])[0][:2],(500,-500))
 
+    def test_mode_switch_retains_both_drafts_overrides_and_recordings(self):
+        self.p['segments'][1]['settings']={**self.p['settings'],'seed':57}
+        self.p['segments'][1]['output']={'speed':1.1,'volume':.8}
+        before=copy.deepcopy(self.app.save_project(self.p))
+        for mode in ('single','segments','single','segments'):
+            before['mode']=mode
+            saved=self.app.save_project(before)
+            self.assertEqual(saved['single'],before['single'])
+            self.assertEqual(saved['segments'],before['segments'])
+        restarted=Studio(self.temp.name,TestEngine)
+        try:
+            self.assertEqual(restarted.project('project')['segments'],before['segments'])
+            self.assertEqual(len(restarted.state['jobs']),2)
+        finally:restarted.close()
+        self.assertEqual(self.app.engine.calls,[])
+
+    def test_export_one_segment_with_incomplete_sibling_and_output_override(self):
+        self.p['segments'][0]['text']='尚未配音的新文案'
+        self.p['segments'][1]['output']={'speed':1,'volume':.25}
+        self.app.save_project(self.p)
+        with self.assertRaisesRegex(ValueError,'已修改'):
+            self.app.export({'project_id':'project'})
+        data=self.app.export({'project_id':'project','segment_id':'b'})[0]
+        pcm,rate=samples(data)
+        self.assertEqual(len(pcm),480)
+        self.assertEqual(pcm[:2],(250,-250))
+        raw=(self.app.data/'outputs/b.wav').read_bytes()
+        self.assertEqual(self.app.export({'project_id':'project','segment_id':'b','variant':'original'})[0],raw)
+        with self.assertRaisesRegex(ValueError,'找不到'):
+            self.app.export({'project_id':'project','segment_id':'missing'})
+
 
 if __name__ == '__main__': unittest.main()

@@ -4,6 +4,7 @@ import { App } from "./App.jsx";
 import "./styles.css";
 import "./voice-design.css";
 import "./audio-output.css";
+import "./workbench.css";
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
