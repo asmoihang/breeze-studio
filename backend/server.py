@@ -24,6 +24,7 @@ import uuid
 import wave
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from audio_output import AudioOutput, output_settings
 
 ROOT = Path(__file__).resolve().parent.parent
 VERSION = (ROOT / 'VERSION').read_text('utf-8').strip() if (ROOT / 'VERSION').exists() else '0.1.0'
@@ -182,6 +183,7 @@ class Studio:
     def __init__(self, data, engine_factory=Engine):
         self.data = Path(data); self.data.mkdir(parents=True, exist_ok=True)
         for name in ('voices', 'outputs'): (self.data / name).mkdir(exist_ok=True)
+        self.audio_output = AudioOutput(self.data / 'processed')
         self.lock = threading.RLock(); self.events = {}; self.current = None; self.pending = queue.Queue()
         self.model_lock = threading.Lock(); self.closed = False
         self.config = {'repo': '', 'model': '', 'python': '', 'stt_url': '', 'stt_model': 'whisper-1'}
@@ -206,7 +208,7 @@ class Studio:
     def snapshot(self):
         with self.lock:
             return {**clone(self.state), 'version': VERSION, 'config': clone(self.config), 'engine': self.engine.state,
-                    'engine_error': self.engine.error}
+                    'engine_error': self.engine.error, 'audio_output': self.audio_output.capabilities()}
 
     def project(self, pid):
         return next((x for x in self.state['projects'] if x['id'] == pid), None)
@@ -220,12 +222,13 @@ class Studio:
         for row in rows:
             segments.append({'id': text(row.get('id') or uid(), 80), 'title': text(row.get('title', '未命名'), 100),
                              'text': text(row.get('text', ''), 10000),
-                             'settings': settings(row['settings']) if row.get('settings') else None})
+                             'settings': settings(row['settings']) if row.get('settings') else None,
+                             'output': output_settings(row['output']) if row.get('output') is not None else None})
         if len(set(s['id'] for s in segments)) != len(segments): raise ValueError('段落 ID 重复。')
         if sum(len(s['text']) for s in segments) > 100000: raise ValueError('项目文案过长。')
         result = {'id': pid, 'name': text(body.get('name', '未命名项目'), 100),
                   'mode': 'segments' if body.get('mode') == 'segments' else 'single',
-                  'settings': global_settings, 'segments': segments,
+                  'settings': global_settings, 'segments': segments, 'output': output_settings(body.get('output')),
                   'pause_ms': max(0, min(10000, int(body.get('pause_ms', 300)))), 'updated': now()}
         result['single'] = {'id': 'single-' + pid, 'title': '自由配音',
                             'text': text(body.get('single', {}).get('text', ''), 10000), 'settings': None}
@@ -410,30 +413,62 @@ class Studio:
         with self.lock: self.state['voices'].append(voice); self.save()
         return voice
 
-    def export(self, body):
+    def output_rows(self, body):
         with self.lock:
             p = self.project(body.get('project_id'))
             if not p: raise ValueError('项目不存在。')
+            p = clone(p)
+            variant = body.get('variant', 'adjusted')
+            if variant not in ('original', 'adjusted'): raise ValueError('音频版本无效。')
             rows = []
-            for s in ([p['single']] if p['mode'] == 'single' else p['segments']):
+            source = [p['single']] if p['mode'] == 'single' else p['segments']
+            if body.get('segment_id'):
+                source = [s for s in source if s['id'] == body['segment_id']]
+                if not source: raise ValueError('找不到选中的段落。')
+            for s in source:
                 sig = signature(s, p['settings'])
                 j = next((j for j in reversed(self.state['jobs']) if j['project_id'] == p['id']
                           and j['segment_id'] == s['id'] and j['signature'] == sig and j['status'] == 'completed'), None)
                 if not j: raise ValueError(f'「{s["title"]}」尚未生成，或内容已修改。请先生成最新录音。')
                 rows.append((clone(s), clone(j)))
             pause = int(body.get('pause_ms', p['pause_ms']))
+        if not 0 <= pause <= 10000: raise ValueError('段间停顿范围为 0～10000 ms。')
         paths = [self.data / j['file'] for s, j in rows]
         if sum(f.stat().st_size for f in paths) > 512 * 1024 * 1024: raise ValueError('本次导出超过 512 MB，请拆分项目。')
+        values = [output_settings((s.get('output') or p.get('output')) if variant == 'adjusted' else None) for s, j in rows]
+        paths = [self.audio_output.render(path, v) for path, v in zip(paths, values)]
+        if sum(f.stat().st_size for f in paths) > 512 * 1024 * 1024: raise ValueError('处理后音频超过 512 MB，请拆分项目。')
+        return rows, paths, values, pause
+
+    def render(self, body):
+        rows, paths, values, pause = self.output_rows(body)
+        if len(paths) == 1:
+            path = paths[0]
+            url = f'/api/audio/job/{rows[0][1]["id"]}' if path.parent.name == 'outputs' else f'/api/processed/{path.stem}'
+        else:
+            key = hashlib.sha256(json.dumps([[(str(f), f.stat().st_mtime_ns) for f in paths], pause]).encode()).hexdigest()
+            path = self.audio_output.directory / (key + '.wav')
+            with self.audio_output.lock:
+                if not path.exists():
+                    temp = path.with_suffix('.tmp')
+                    try: temp.write_bytes(merge_wavs(paths, pause)); os.replace(temp, path)
+                    finally: temp.unlink(missing_ok=True)
+            url = f'/api/processed/{key}'
+        return {'url': url, **audio_info(path)}
+
+    def export(self, body):
+        rows, paths, values, pause = self.output_rows(body)
         if body.get('format') == 'zip':
             buffer = io.BytesIO()
             with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as z:
                 for i, (s, j) in enumerate(rows):
                     title = re.sub(r'[\\/:*?"<>|\x00-\x1f]', '-', s['title'])[:60]
-                    z.write(self.data / j['file'], f'{i+1:02d}-{title}.wav')
-                z.writestr('script.json', json.dumps([{'title': s['title'], 'text': s['text'], 'settings': j['settings']}
-                                                     for s, j in rows], ensure_ascii=False, indent=2))
+                    z.write(paths[i], f'{i+1:02d}-{title}.wav')
+                z.writestr('script.json', json.dumps([{'title': s['title'], 'text': s['text'], 'settings': j['settings'],
+                    'output': values[i], 'variant': body.get('variant', 'adjusted')}
+                    for i, (s, j) in enumerate(rows)], ensure_ascii=False, indent=2))
             return buffer.getvalue(), 'application/zip', 'narration.zip'
-        return merge_wavs(paths, pause), 'audio/wav', 'narration.wav'
+        return paths[0].read_bytes() if len(paths) == 1 else merge_wavs(paths, pause), 'audio/wav', 'narration.wav'
 
     def close(self):
         self.closed = True; self.pending.put(None); self.engine.stop()
@@ -508,6 +543,12 @@ class Handler(BaseHTTPRequestHandler):
                     file = self.app.data / obj['file']
                 self.send(file.read_bytes(), content_type=mimetypes.guess_type(file)[0] or 'audio/wav',
                           filename=(itemid + file.suffix) if 'download' in urllib.parse.parse_qs(url.query) else None); return
+            if path.startswith('/api/processed/'):
+                key = path.rsplit('/', 1)[-1]
+                if not re.fullmatch('[a-f0-9]{64}', key): raise ValueError('音频地址无效。')
+                file = self.app.audio_output.directory / (key + '.wav')
+                if not file.is_file(): self.send({'error': '试听文件不存在，请重新试听。'}, 404); return
+                self.send(file.read_bytes(), content_type='audio/wav', filename='narration.wav' if 'download' in urllib.parse.parse_qs(url.query) else None); return
             if path.startswith('/api/'): self.send({'error': '接口不存在。'}, 404); return
             base = ROOT / 'dist/client'
             rel = path.lstrip('/') or 'index.html'; file = (base / rel).resolve()
@@ -560,6 +601,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send(c); return
             if path == '/api/export':
                 data, mime, filename = self.app.export(body); self.send(data, content_type=mime, filename=filename); return
+            if path == '/api/render': self.send(self.app.render(body)); return
             if path == '/api/transcribe': self.send(self.transcribe(body)); return
             self.send({'error': '接口不存在。'}, 404)
         except Exception as exc: self.send({'error': str(exc)}, 400)
