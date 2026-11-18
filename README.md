@@ -20,10 +20,10 @@
 
 仓库包含已构建的 `dist/client/`，目标电脑不需要 Node.js。第一次安装可克隆本仓库，然后运行 `bash start.sh`。
 
-已经用 ZIP 安装的用户：先关闭旧服务，在另一个新目录克隆仓库，再复制旧程序的 **data 文件夹**。例如（把仓库地址替换成实际地址）：
+已经用 ZIP 安装的用户：先关闭旧服务，在另一个新目录克隆仓库，再复制旧程序的 **data 文件夹**。例如：
 
 ```bash
-git clone "https://github.com/你的账号/breeze-studio.git" ~/breeze-studio-git
+git clone "https://github.com/asmoihang/breeze-studio.git" ~/breeze-studio-git
 cp -a ~/breeze-studio/data ~/breeze-studio-git/data
 cd ~/breeze-studio-git
 bash start.sh
@@ -49,7 +49,7 @@ bash start.sh
 2. 在 Ubuntu/WSL 终端中，把文件夹复制到 Linux 主目录。例如解压在 Windows 下载文件夹时（用户名按实际修改）：
 
    ```bash
-   cp -r /mnt/c/Users/16572/Downloads/breeze-studio ~/breeze-studio
+   cp -r /mnt/c/Users/你的Windows用户名/Downloads/breeze-studio ~/breeze-studio
    cd ~/breeze-studio
    bash start.sh
    ```
