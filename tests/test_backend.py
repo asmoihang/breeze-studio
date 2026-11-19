@@ -184,6 +184,28 @@ class HTTPTests(unittest.TestCase):
         request = urllib.request.Request(self.base + '/api/config', data=json.dumps({'stt_url': 'https://outside.example/v1'}).encode(), headers={'Content-Type': 'application/json'})
         with self.assertRaises(urllib.error.HTTPError) as err: self.opener.open(request)
         self.assertEqual(err.exception.code, 400)
+    def test_zip_http_contains_all_segments_and_exact_original_audio(self):
+        p = self.app.save_project({'id': 'zip-http', 'mode': 'segments',
+            'settings': {'instruction': '自然'},
+            'segments': [{'id': str(i), 'title': f'第 {i+1} 段', 'text': f'教程文案{i}。'} for i in range(10)]})
+        raw = wav_bytes((1000, -1000) * 24000)
+        for s in p['segments']:
+            file = 'outputs/' + s['id'] + '.wav'
+            (self.app.data / file).write_bytes(raw)
+            self.app.state['jobs'].append({'id': s['id'], 'project_id': p['id'], 'segment_id': s['id'],
+                'signature': signature(s, p['settings']), 'settings': p['settings'], 'status': 'completed', 'file': file})
+        request = urllib.request.Request(self.base + '/api/export',
+            data=json.dumps({'project_id': p['id'], 'format': 'zip', 'variant': 'original'}).encode(),
+            headers={'Content-Type': 'application/json'})
+        with self.opener.open(request) as response:
+            data = response.read()
+            self.assertEqual(response.headers['Content-Type'], 'application/zip')
+            self.assertEqual(int(response.headers['Content-Length']), len(data))
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            self.assertIsNone(archive.testzip())
+            self.assertEqual(len(archive.namelist()), 11)
+            for i in range(10): self.assertEqual(archive.read(f'{i+1:02d}-第 {i+1} 段.wav'), raw)
+            self.assertEqual(len(json.loads(archive.read('script.json'))), 10)
     def test_config_keeps_venv_executable_path(self):
         from unittest.mock import patch
         executable = str(Path(self.tmp.name) / '.venv' / 'bin' / 'python')

@@ -17,4 +17,4 @@ export function newProject() {
     segments:[['开场','今天教你把一份资料整理成对比表。'],['上传文件','点击上传按钮，选择准备好的文件。'],['输入提示词','在输入框里写下你的整理要求。'],['检查结果','核对表格内容，确认后导出。']].map(([title,text])=>({id:id(),title,text,settings:null}))};
 }
 export const base64 = file => new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result.split(',')[1]);r.onerror=reject;r.readAsDataURL(file);});
-export function download(blob,name) {const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+export {download} from './download';

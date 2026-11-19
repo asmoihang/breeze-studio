@@ -1,6 +1,7 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {ArrowCounterClockwise,DownloadSimple} from '@phosphor-icons/react';
 import {api,download,latest} from './api';
+import {exportBlob} from './download';
 import {Player} from './components';
 
 export const defaultOutput={speed:1,volume:1};
@@ -52,9 +53,8 @@ export function AudioDock({p,server,update,edit,selected,scope,setScope,persist,
   try{
    await persist(p);
    const response=await fetch('/api/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project_id:p.id,format,variant,segment_id:segmentOnly?row.id:undefined})});
-   if(!response.ok)throw new Error((await response.json()).error);
-   download(await response.blob(),`${p.name}${segmentOnly?'-'+row.title:''}-${variant==='original'?'原始':'调整后'}.${format==='zip'?'zip':'wav'}`);
-   notify('已导出'+(variant==='original'?'原始':'调整后')+'音频。');
+   download(await exportBlob(response,format),`${p.name}${segmentOnly?'-'+row.title:''}-${variant==='original'?'原始':'调整后'}.${format==='zip'?'zip':'wav'}`);
+   notify('已提交浏览器下载，请在下载列表确认完成。');
   }catch(e){notify(e.message);}finally{setExporting(false);}
  }
  return <section className="audio-dock" aria-label="试听与调节">
