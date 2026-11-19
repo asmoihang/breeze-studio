@@ -1,6 +1,6 @@
 {
   "name": "breeze-studio",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,8 @@
     "build": "vite build && node scripts/prepare-sites-build.mjs",
     "preview": "vite preview",
     "test:sites": "node --test tests/sites-worker.test.mjs",
-    "test:download": "node --test tests/download.test.mjs"
+    "test:download": "node --test tests/download.test.mjs",
+    "test:import": "node --test tests/script-import.test.mjs"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",

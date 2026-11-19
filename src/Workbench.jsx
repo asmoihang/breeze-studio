@@ -4,6 +4,7 @@ import {active,id,labels,latest,time} from './api';
 import {Wave} from './components';
 import {AudioDock,effectiveOutput,outputLabel} from './AudioDock';
 import {sweetVoice} from './voicePresets';
+import {parseScriptImport} from './scriptImport';
 
 function ScriptText({value,...props}){
  const ref=useRef();
@@ -34,7 +35,7 @@ export function Workbench({p,server,update,edit,selected,setSelected,scope,setSc
   <div className="work-columns">
    <section className="work-editor" aria-label={segmented?'段落文案':'配音文案'}>
     <div className="work-editor-head"><h2>{segmented?'段落文案':'配音文案'}</h2>{segmented&&<span className="segment-count">{p.segments.length} 段</span>}<button className="link import-script" onClick={()=>file.current.click()}><UploadSimple/>{segmented?'导入文案':'导入文本'}</button>{segmented&&<button onClick={()=>{const row={id:id(),title:`第 ${p.segments.length+1} 段`,text:'',settings:null,output:null};update({segments:[...p.segments,row]});select(row);}} disabled={p.segments.length>=200}><Plus/>添加</button>}</div>
-    <input hidden ref={file} type="file" accept=".txt,.md" onChange={e=>{const f=e.target.files[0];if(f)act(async()=>{if(f.size>500000)throw new Error('文本文件过大。');const value=await f.text();if(segmented)setModal({type:'split',text:value});else update({single:{...p.single,text:value}});});e.target.value='';}}/>
+    <input hidden ref={file} type="file" accept=".txt,.md,.json" onChange={e=>{const f=e.target.files[0];if(f)act(async()=>{if(f.size>500000)throw new Error('文本文件过大。');const value=await f.text();if(/\.json$/i.test(f.name)){const script=parseScriptImport(value);setModal({type:'import-script',script,voice_id:p.settings.voice_id});}else if(segmented)setModal({type:'split',text:value});else update({single:{...p.single,text:value}});});e.target.value='';}}/>
     {!segmented?<><textarea className="free-script" aria-label="配音文案" value={p.single.text} onChange={e=>update({single:{...p.single,text:e.target.value}})} placeholder="输入要朗读的教程文案…"/><div className="free-status"><label className="check"><input type="checkbox" checked={live} onChange={e=>{setLive(e.target.checked);if(!e.target.checked)stopLive();}}/>生成时试听</label><span>{p.single.text.length} / 800 字</span>{result&&<span role="status">{labels[result.status]}</span>}{result?.status==='completed'&&<button className="link" onClick={()=>voiceModal(result)}>保存为音色</button>}</div>{result?.error&&<details className="error-detail"><summary>查看生成错误</summary><pre>{result.error}</pre></details>}</>:<div className="work-rows">{p.segments.map((s,i)=>{
      const job=latest(server.jobs,p,s),done=job?.status==='completed',old=server.jobs.some(j=>j.project_id===p.id&&j.segment_id===s.id&&j.status==='completed');
      const values=effectiveOutput(p,s);
